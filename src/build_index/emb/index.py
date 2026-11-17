@@ -1,5 +1,9 @@
 import time
 import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from embedding_api import EmbeddingAPI
 import json
 from llama_index import SimpleDirectoryReader
 import csv
@@ -19,8 +23,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--model",
     type=str,
-    choices=["bge-base-en-v1.5", "gtr-t5-xxl"],
-    default="bge-base-en-v1.5",
+    choices=["bge-base-en-v1.5", "gtr-t5-xxl", "Qwen3-Embedding-8B"],
+    default="Qwen3-Embedding-8B",
     help="Model to use",
 )
 parser.add_argument(
@@ -64,7 +68,13 @@ def build_index(embeddings, vectorstore_path):
 
 if __name__ == "__main__":
 
-    model = SentenceTransformer(config["model"][args.model], device=args.device)
+    use_api = config.get("embedding", {}).get("provider", "local") == "api"
+    if use_api:
+        if args.model and args.model != config["embedding"]["model"]:
+            raise ValueError("--model must match embedding.model when provider is api")
+        model = EmbeddingAPI(config["embedding"])
+    else:
+        model = SentenceTransformer(config["model"][args.model or "bge-base-en-v1.5"], device=args.device)
     if args.dataset == "asqa" or args.dataset == "strategyqa":
         dataset_name = "wiki"
     else:
@@ -74,7 +84,7 @@ if __name__ == "__main__":
     print("loading document ...")
     start = time.time()
     if dataset_name == "wiki":
-        if os.path.exists("../../../data/corpus/wiki/gtr_wikipedia_index.pkl"):
+        if not use_api and os.path.exists("../../../data/corpus/wiki/gtr_wikipedia_index.pkl"):
             import pickle
 
             with open(
@@ -175,12 +185,17 @@ if __name__ == "__main__":
                     hist.add(stamp)
                     tot += 1
 
-    contents = split_text(contents)
-    embeddings = model.encode(contents, batch_size=600)
-    with open(
-        f"../../../data/corpus/{dataset_name}/chunk.json", "w", encoding="utf-8"
-    ) as fout:
-        json.dump(contents, fout, ensure_ascii=False)
+    if dataset_name != "wiki":
+        contents = split_text(contents)
+        embeddings = model.encode(contents, batch_size=600)
+        with open(
+            f"../../../data/corpus/{dataset_name}/chunk.json", "w", encoding="utf-8"
+        ) as fout:
+            json.dump(contents, fout, ensure_ascii=False)
     print("Building index ...")
     build_index(embeddings, vectorstore_path)
+    if use_api:
+        model.save_metadata(vectorstore_path)
+    else:
+        Path(vectorstore_path + ".embedding.json").unlink(missing_ok=True)
     end = time.time()

@@ -12,6 +12,7 @@ from multiprocessing.pool import ThreadPool
 from tqdm import tqdm
 from eval import acc_score, F1_scorer, compute_exact, eval_asqa, acc_choice
 from utils import seed_everything
+from embedding_api import EmbeddingAPI
 from vllm import LLM, SamplingParams
 
 parser = argparse.ArgumentParser()
@@ -322,33 +323,42 @@ if __name__ == "__main__":
         logger.info("%s -->   %s", keystr, val)
     dataset_name = args.dataset
     vector_path = f"../data/corpus/{dataset_name}/{dataset_name}.index"
+    use_embedding_api = config.get("embedding", {}).get("provider", "local") == "api"
     if args.dataset == "asqa" or args.dataset == "strategyqa":
 
         vector = faiss.read_index(f"../data/corpus/wiki/wiki.index")
-        emb_model = SentenceTransformer(config["model"]["gtr-t5-xxl"], device="cpu")
+        if use_embedding_api:
+            emb_model = EmbeddingAPI(config["embedding"])
+            emb_model.validate_index("../data/corpus/wiki/wiki.index")
+        else:
+            emb_model = SentenceTransformer(config["model"]["gtr-t5-xxl"], device="cpu")
         raw_data = pd.read_csv("../data/corpus/wiki/psgs_w100.tsv", sep="\t")
 
         def retrieve(_, query, topk):
-            feature = emb_model.encode([query])
+            feature = emb_model.encode([query], query=True) if use_embedding_api else emb_model.encode([query])
             _, match_id = vector.search(feature, topk)
             return [
                 raw_data.iloc[i]["title"] + "\n" + raw_data.iloc[i]["text"]
-                for i in match_id[0]
+                for i in match_id[0] if 0 <= i < len(raw_data)
             ]
 
     elif args.retrieve_method == "emb":
 
-        emb_model = SentenceTransformer(
-            config["model"]["bge-base-en-v1.5"], device=args.device
-        )
+        if use_embedding_api:
+            emb_model = EmbeddingAPI(config["embedding"])
+            emb_model.validate_index(vector_path)
+        else:
+            emb_model = SentenceTransformer(
+                config["model"]["bge-base-en-v1.5"], device=args.device
+            )
         with open(f"../data/corpus/{args.dataset}/chunk.json", encoding="utf-8") as f:
             raw_data = json.load(f)
         vector = faiss.read_index(vector_path)
 
         def retrieve(_, query, topk):
-            feature = emb_model.encode([query])
+            feature = emb_model.encode([query], query=True) if use_embedding_api else emb_model.encode([query])
             _, match_id = vector.search(feature, topk)
-            return [raw_data[i] for i in match_id[0]]
+            return [raw_data[i] for i in match_id[0] if 0 <= i < len(raw_data)]
 
     else:
         from es_retrieve import retrieve

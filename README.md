@@ -76,6 +76,51 @@ python index.py --dataset asqa --model gtr-t5-xxl
 
 # Configuration
 
+## Qwen3-Embedding via an existing vLLM service
+
+`config/config.yaml` now defaults to the embedding API at
+`http://127.0.0.1:8200/v1`, with served model name `Qwen3-Embedding-8B`.
+Change this address if DeepNote runs on a different host/container. No
+Elasticsearch service is required when running with `--retrieve_method emb`.
+The generation model configuration remains separate and unchanged.
+
+Build an index from the original corpus (run from the project root):
+
+```bash
+cd src/build_index/emb
+python index.py --dataset 2wikimultihopqa
+# Or: python index.py --dataset musique
+# Or: python index.py --dataset hotpotqa
+```
+
+Then run evaluation from `src/`, selecting your configured generation model:
+
+```bash
+cd ../..
+python main.py --dataset 2wikimultihopqa --retrieve_method emb --method deepnote --model qwen2.5-7b-instruct --MaxClients 1
+```
+
+The example generation model above still uses the original local loading path;
+it does not connect to a separately deployed G9v3 generation service.
+
+The API client batches documents using `embedding.batch_size`, L2-normalizes
+both document/query vectors. `embedding.query_instruction` defaults to an empty
+string, so queries are sent unchanged, with no instruction or Query prefix.
+An optional nonempty instruction is applied only to queries, following the
+[Qwen3-Embedding model card](https://huggingface.co/Qwen/Qwen3-Embedding-8B).
+Rebuild existing BGE/GTR indices before using Qwen embeddings. A companion
+`*.index.embedding.json` records the embedding settings and must stay with the
+index. Changing the embedding model requires rebuilding the index. Changing
+only the query instruction does not require rebuilding document vectors.
+Building writes the usual dataset index and replaces any existing index there;
+back up old indices first if needed. ASQA/StrategyQA use the shared `wiki.index`;
+in API mode their precomputed GTR embeddings are intentionally not reused.
+
+To restore the original local embeddings, set `embedding.provider: local` and
+rebuild with `--model bge-base-en-v1.5` (or `--model gtr-t5-xxl` for Wikipedia).
+Only the service needs a Qwen3-compatible runtime; the API client does not load
+Qwen3 weights in DeepNote's Python environment.
+
 You can configure your API key, URL, and other settings in the `./config/config.yaml` file.
 
 

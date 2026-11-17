@@ -8,8 +8,17 @@ model:
   qwen2.5-7b-instruct-dpo: ""
   bge-base-en-v1.5: "BAAI/bge-base-en-v1.5"
   gtr-t5-xxl: "sentence-transformers/gtr-t5-xxl"
+embedding:
+  provider: "api" # api: Qwen3 service; local: original BGE/GTR
+  base_url: "http://127.0.0.1:8200/v1"
+  model: "Qwen3-Embedding-8B"
+  api_key: "EMPTY"
+  batch_size: 16
+  timeout: 120
+  query_instruction: "" # Send the original query without an instruction prefix.
+
 es:
-  url: "http://localhost:9200"
+  url: "http://localhost:9202"
 
 score: 
   init_note: 'Task: You will receive a list of notes generated based on a given document content and question. \nYour task is to evaluate and score these notes based on their quality. Quality refers to: relevance, coherence, completeness in answering the specified question, and accuracy of information. \n\nQuestion to be answered: {query}\nDocument content: {refs}\n\nGenerated notes: {notes}\nNote format: Each note contains "_id" and "content" fields. \n\nEvaluate the generated notes. The highest-scoring note must be factually correct based on the document. If no note is correct, or if there is minimal quality difference between notes, use the same _id for both best and worst. \nOutput in the following JSON format:\n```json {{"best_id": <_id of the highest-scoring note>, "worst_id": <_id of the lowest-scoring note>}}```\n\n Do not include any explanations or additional text.'
