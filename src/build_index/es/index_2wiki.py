@@ -1,3 +1,4 @@
+from build_timing import BuildTiming
 from argparse import ArgumentParser
 from elasticsearch import Elasticsearch
 import html
@@ -41,6 +42,7 @@ def index_chunk(chunk):
 
 
 def main(args):
+    timing = BuildTiming()
 
     train = json.load(open("../../../data/corpus/2wikimultihopqa/train.json", "r"))
     dev = json.load(open("../../../data/corpus/2wikimultihopqa/dev.json", "r"))
@@ -55,6 +57,8 @@ def main(args):
         {"id": i, "text": text, "title": title}
         for i, (text, title) in enumerate(data.items())
     ]
+
+    timing.checkpoint("data_processing_seconds")
 
     # make index
     if not args.dry:
@@ -136,12 +140,16 @@ def main(args):
             ),
         )
 
+    timing.checkpoint("index_setup_seconds")
+
     print("Making indexing queries...")
     all_queries = []
     for item in tqdm(wikipedia_data):
         all_queries.append(process_line(item))
 
     count = sum(len(queries.split("\n")) for queries in all_queries) // 2
+
+    timing.checkpoint("data_processing_seconds")
 
     if not args.dry:
         print("Indexing...")
@@ -153,7 +161,9 @@ def main(args):
             res = es.bulk(index=INDEX_NAME, body="\n".join(chunk), timeout="100s")
             assert not res["errors"], res
 
-    print(f"{count} documents indexed in total")
+    timing.checkpoint("bulk_index_seconds")
+    timing.finish(es, INDEX_NAME, count, args.dry)
+    print(f"{count} documents {'prepared' if args.dry else 'indexed'} in total")
 
 
 if __name__ == "__main__":

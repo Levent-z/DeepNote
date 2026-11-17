@@ -1,3 +1,4 @@
+from build_timing import BuildTiming
 from argparse import ArgumentParser
 import bz2
 from elasticsearch import Elasticsearch
@@ -52,6 +53,7 @@ def index_chunk(chunk):
 
 
 def main(args):
+    timing = BuildTiming()
     if not args.dry:
         if es.indices.exists(index=WIKIPEDIA_INDEX_NAME):
             es.indices.delete(index=WIKIPEDIA_INDEX_NAME, ignore=[400, 403])
@@ -131,6 +133,8 @@ def main(args):
                 ),
             )
 
+    timing.checkpoint("index_setup_seconds")
+
     filelist = glob("../../../data/corpus/hotpotqa/*/wiki_*.bz2")
 
     print("Making indexing queries...")
@@ -142,6 +146,8 @@ def main(args):
     )
 
     count = sum(len(queries.split("\n")) for queries in all_queries) // 2
+
+    timing.checkpoint("data_processing_seconds")
 
     if not args.dry:
         print("Indexing...")
@@ -155,7 +161,9 @@ def main(args):
             )
             assert not res["errors"], res
 
-    print(f"{count} documents indexed in total")
+    timing.checkpoint("bulk_index_seconds")
+    timing.finish(es, WIKIPEDIA_INDEX_NAME, count, args.dry)
+    print(f"{count} documents {'prepared' if args.dry else 'indexed'} in total")
 
 
 if __name__ == "__main__":

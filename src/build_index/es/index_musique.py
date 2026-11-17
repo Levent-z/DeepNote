@@ -1,3 +1,4 @@
+from build_timing import BuildTiming
 from argparse import ArgumentParser
 from elasticsearch import Elasticsearch
 import html
@@ -41,6 +42,7 @@ def index_chunk(chunk):
 
 
 def main(args):
+    timing = BuildTiming()
     # make index
     if not args.dry:
         if es.indices.exists(index=INDEX_NAME):
@@ -120,6 +122,8 @@ def main(args):
             ),
         )
 
+    timing.checkpoint("index_setup_seconds")
+
     train = [
         json.loads(line.strip())
         for line in open("../../../data/corpus/musique/musique_ans_v1.0_train.jsonl")
@@ -162,6 +166,8 @@ def main(args):
 
     count = sum(len(queries.split("\n")) for queries in all_queries) // 2
 
+    timing.checkpoint("data_processing_seconds")
+
     if not args.dry:
         print("Indexing...")
         chunksize = 100
@@ -172,7 +178,9 @@ def main(args):
             res = es.bulk(index=INDEX_NAME, body="\n".join(chunk), timeout="100s")
             assert not res["errors"], res
 
-    print(f"{count} documents indexed in total")
+    timing.checkpoint("bulk_index_seconds")
+    timing.finish(es, INDEX_NAME, count, args.dry)
+    print(f"{count} documents {'prepared' if args.dry else 'indexed'} in total")
 
 
 if __name__ == "__main__":

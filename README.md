@@ -54,6 +54,15 @@ python index_musique.py
 python index_hotpotqa.py
 ```
 
+BM25 scripts print wall-clock timings and save `bm25.stats.json` under
+`data/corpus/{dataset}/`. Reports include data processing, index setup
+(including replacement of an existing index), bulk indexing, explicit ES
+refresh, and total time through refresh completion. Bulk time includes client
+request preparation and network/server processing. `--dry` writes a separate
+`bm25.dry.stats.json`, skips ES writes/refresh, and is not a build benchmark.
+Repeated runs overwrite the corresponding report. Existing ES endpoint and
+index mapping settings in these scripts are unchanged.
+
 ### For Dense Retrieval
 
 #### For HotpotQA, 2WikiMQA, and MusiQue
