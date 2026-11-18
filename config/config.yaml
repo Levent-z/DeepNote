@@ -8,6 +8,18 @@ model:
   qwen2.5-7b-instruct-dpo: ""
   bge-base-en-v1.5: "BAAI/bge-base-en-v1.5"
   gtr-t5-xxl: "sentence-transformers/gtr-t5-xxl"
+generation:
+  base_url: "http://127.0.0.1:18080/v1" # Set your Jiugе vLLM service URL, e.g. http://HOST:PORT/v1
+  model: "G9v3-39A5B" # Must match /v1/models or --served-model-name; possibly "9g".
+  api_key: "EMPTY" # Or set DEEPNOTE_GENERATION_API_KEY in your shell.
+  temperature: 0.6
+  # Omit top_p, token limits, penalties, seed, stop and stream: use server defaults.
+  enable_thinking: false
+  timeout: 120
+  max_attempts: 3 # Includes the initial request.
+  retry_delay: 2
+  strip_thinking: true
+
 embedding:
   provider: "api" # api: Qwen3 service; local: original BGE/GTR
   base_url: "http://127.0.0.1:8200/v1"
@@ -16,6 +28,13 @@ embedding:
   batch_size: 16
   timeout: 120
   query_instruction: "" # Send the original query without an instruction prefix.
+
+evaluation:
+  # Use the SAME judge service/model as the comparison framework.
+  base_url: "http://localhost:8001/v1"
+  model: "Qwen3-VL"
+  api_key: "EMPTY" # Replace locally if authentication is required.
+  max_workers: 2
 
 es:
   url: "http://localhost:9202"

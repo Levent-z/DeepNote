@@ -3,31 +3,26 @@ import json
 import argparse
 import logging
 import datetime
+import asyncio
+import time
+from pathlib import Path
 import yaml
 import faiss
 import pandas as pd
-from sentence_transformers import SentenceTransformer
 import backoff
 from multiprocessing.pool import ThreadPool
 from tqdm import tqdm
 from eval import acc_score, F1_scorer, compute_exact, eval_asqa, acc_choice
 from utils import seed_everything
 from embedding_api import EmbeddingAPI
-from vllm import LLM, SamplingParams
+from prediction_report import load_questions, PerformanceTracker, save_report
+from generation_api import GenerationAPI
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--model",
     type=str,
-    choices=[
-        "gpt-4o-mini-2024-07-18",
-        "Llama-3-1-70B-Instruct",
-        "llama-3.1-8b-instruct",
-        "llama-3.1-8b-instruct-dpo",
-        "qwen2.5-7b-instruct",
-        "qwen2.5-7b-instruct-dpo",
-    ],
-    default="llama-3.1-8b-instruct",
+    default=None,
     help="Model to use",
 )
 parser.add_argument(
@@ -60,6 +55,7 @@ parser.add_argument(
         "musique",
         "asqa",
         "strategyqa",
+        "military",
     ],
     default="hotpotqa",
     help="Dataset to use",
@@ -86,10 +82,33 @@ parser.add_argument(
 parser.add_argument(
     "--device", type=str, default="cuda:0", help="Device to run inference on"
 )
+parser.add_argument("--eval_backend", choices=["jybigdata", "original", "none"], default="jybigdata",
+                    help="Unified LLM judge evaluation or original Acc/F1/EM evaluation")
+parser.add_argument("--question_file", default="",
+                    help="Question JSON array or JSONL; none mode needs only question")
+parser.add_argument("--output_path", default="", help="Single JSON report path in --eval_backend none mode")
+parser.add_argument("--model_backend", choices=["auto", "api", "local"], default="auto",
+                    help="api calls generation service; local loads vLLM weights; auto keeps legacy behavior")
 args = parser.parse_args()
+if args.eval_backend == "jybigdata" and args.method != "deepnote":
+    parser.error("jybigdata evaluation currently requires --method deepnote for retrieval logs")
+if args.dataset == "military" and args.retrieve_method != "emb":
+    parser.error("military currently requires --retrieve_method emb")
+if args.MaxClients < 1:
+    parser.error("--MaxClients must be positive")
+if args.eval_backend == "none" and args.resume_path:
+    parser.error("Generation-only reports do not yet support --resume_path")
+if args.output_path and args.eval_backend != "none":
+    parser.error("--output_path currently requires --eval_backend none")
 
 with open("../config/config.yaml", "r") as f:
     config = yaml.safe_load(f)
+if args.model_backend == "api":
+    args.model = args.model or config.get("generation", {}).get("model")
+    if not args.model:
+        parser.error("API mode requires generation.model or --model")
+else:
+    args.model = args.model or "llama-3.1-8b-instruct"
 
 
 @backoff.on_exception(backoff.expo, (Exception), max_time=500)
@@ -114,12 +133,17 @@ def call_local(prompt_file, variable_dict):
     return response
 
 
-if "gpt" in args.model:
+if args.model_backend == "api":
+    call_llm = GenerationAPI(config.get("generation", {}), args.model)
+elif args.model_backend == "auto" and "gpt" in args.model:
     from utils import gpt_gen
 
     call_llm = call_gpt
 
 else:
+    from vllm import LLM, SamplingParams
+    if args.model not in config["model"] or not any(name in args.model for name in ("llama", "qwen")):
+        parser.error("Unknown local model; use --model_backend api for a deployed Jiugе service")
     llm = LLM(
         model=config["model"][args.model],
         tensor_parallel_size=1,
@@ -274,7 +298,7 @@ def retrieve_note(doc_id, query, answer, top_k=2):
 
 
 def process_doc_cell(idx, doc_cell, args):
-    id_new, query, answer = idx, doc_cell["question"], doc_cell["answer"]
+    id_new, query, answer = idx, doc_cell["question"], doc_cell.get("answer")
 
     if args.method != "deepnote":
         prompt_path = f"../prompts/{LAUGUAGE}"
@@ -331,6 +355,7 @@ if __name__ == "__main__":
             emb_model = EmbeddingAPI(config["embedding"])
             emb_model.validate_index("../data/corpus/wiki/wiki.index")
         else:
+            from sentence_transformers import SentenceTransformer
             emb_model = SentenceTransformer(config["model"]["gtr-t5-xxl"], device="cpu")
         raw_data = pd.read_csv("../data/corpus/wiki/psgs_w100.tsv", sep="\t")
 
@@ -348,6 +373,7 @@ if __name__ == "__main__":
             emb_model = EmbeddingAPI(config["embedding"])
             emb_model.validate_index(vector_path)
         else:
+            from sentence_transformers import SentenceTransformer
             emb_model = SentenceTransformer(
                 config["model"]["bge-base-en-v1.5"], device=args.device
             )
@@ -365,8 +391,14 @@ if __name__ == "__main__":
 
     formatted_time = datetime.datetime.now().strftime("%Y%m%d-%H:%M:%S")
 
-    with open(f"../data/eval/{args.dataset}/test.json", encoding="utf-8") as f:
-        qa_data = json.load(f)
+    question_path = args.question_file or f"../data/eval/{args.dataset}/test.json"
+    qa_data = load_questions(question_path, require_answer=args.eval_backend != "none")
+    if args.eval_backend == "jybigdata":
+        from eval_jybigdata import gold_documents, evaluate_predictions
+        if not config.get("evaluation", {}).get("base_url") or not config.get("evaluation", {}).get("model"):
+            raise ValueError("Configure evaluation.base_url and evaluation.model before running")
+        for question in qa_data:
+            gold_documents(question)  # Fail before generating answers if references are missing.
 
     retrieve_method = args.retrieve_method
     if args.dataset in ["asqa", "strategyqa"]:
@@ -379,7 +411,14 @@ if __name__ == "__main__":
 
     if args.resume_path:
         with open(args.resume_path, "r", encoding="utf-8") as fin:
-            resume_data = [json.loads(i) for i in fin.readlines()]
+            resume_data = [row for i in fin if i.strip()
+                           for row in [json.loads(i)] if "id" in row and "output" in row]
+            if [row["id"] for row in resume_data] != list(range(len(resume_data))):
+                raise ValueError("Resume predictions must be a contiguous prefix of question positions")
+            for row in resume_data:
+                source = qa_data[row["id"]]
+                if row.get("question", row.get("query")) != source["question"] or row["answer"] != source["answer"]:
+                    raise ValueError("Resume predictions do not match the selected question file")
             all_result = resume_data
             filepath = args.resume_path
     else:
@@ -390,9 +429,24 @@ if __name__ == "__main__":
             else f"{save_path}/topk-{args.retrieve_top_k}__max_step-{args.max_step}__max_fail_step-{args.max_fail_step}-{formatted_time}.jsonl"
         )
     logger.info(f"The predicted results will be saved in '{filepath}'.")
+    report_path = args.output_path or filepath + ".report.json"
+    if args.eval_backend == "none" and Path(report_path).resolve() == Path(question_path).resolve():
+        raise ValueError("Output report must not overwrite the question file")
+    tracker = PerformanceTracker()
+    retrieve = tracker.wrap("retrieval", retrieve)
+    call_llm = tracker.wrap("generation", call_llm)
+    run_info = {"dataset": args.dataset, "method": args.method, "model": args.model,
+                "model_backend": args.model_backend,
+                "retrieve_method": retrieve_method, "question_file": str(Path(question_path).resolve()),
+                "question_count": len(qa_data), "max_step": args.max_step,
+                "max_fail_step": args.max_fail_step, "max_top_k": args.max_top_k,
+                "retrieve_top_k": args.retrieve_top_k, "MaxClients": args.MaxClients}
     last_id = len(resume_data)
     batch_size = args.MaxClients
     logger.info("start predicting ...")
+    generation_started = time.perf_counter()
+    if args.eval_backend == "none":
+        save_report(report_path, [], run_info, 0)
     for i in tqdm(range(last_id, len(qa_data), batch_size)):
         pool = ThreadPool(processes=args.MaxClients)
         current_batch = qa_data[i : i + batch_size]
@@ -400,17 +454,39 @@ if __name__ == "__main__":
             (idx + i, doc_cell, args) for idx, doc_cell in enumerate(current_batch)
         ]
 
-        results = pool.starmap(process_doc_cell, tasks)
-        pool.close()
-        pool.join()
+        try:
+            results = pool.starmap(
+                lambda idx, cell, options: tracker.run(process_doc_cell, idx, cell, options), tasks
+            )
+        finally:
+            pool.close()
+            pool.join()
 
         for result in results:
             if result:
+                if args.eval_backend == "jybigdata":
+                    result["gold_docs"] = gold_documents(qa_data[result["id"]])
                 all_result.append(result)
-                with open(filepath, "a", buffering=1) as fout:
-                    fout.write(json.dumps(result, ensure_ascii=False) + "\n")
+                if args.eval_backend != "none":
+                    with open(filepath, "a", buffering=1) as fout:
+                        fout.write(json.dumps(result, ensure_ascii=False) + "\n")
+        if args.eval_backend == "none":
+            save_report(report_path, all_result, run_info, time.perf_counter() - generation_started)
+
+    if args.eval_backend == "none":
+        summary = save_report(report_path, all_result, run_info,
+                              time.perf_counter() - generation_started, complete=True)
+        logger.info("Generation report saved to %s; summary: %s", report_path, summary)
+        raise SystemExit(0)
 
     logger.info("start evaluating ...")
+
+    if args.eval_backend == "jybigdata":
+        eval_result = asyncio.run(evaluate_predictions(
+            all_result, config["evaluation"], filepath + ".jybigdata.json", qa_data
+        ))
+        logger.info("eval result: %s", eval_result)
+        raise SystemExit(0)
 
     predictions = [data["output"] for data in all_result]
     answers = [data["answer"] for data in all_result]

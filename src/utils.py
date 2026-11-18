@@ -8,9 +8,7 @@ import backoff
 
 with open("../config/config.yaml", "r") as f:
     config = yaml.safe_load(f)
-os.environ["OPENAI_API_KEY"] = config["model"]["OPENAI_API_KEY"]
-os.environ["OPENAI_BASE_URL"] = config["model"]["OPENAI_BASE_URL"]
-client = OpenAI()
+client = None  # Initialize legacy GPT client only when it is actually used.
 
 
 def p_template(template, variables):
@@ -23,6 +21,12 @@ def p_template(template, variables):
 
 def gpt_gen(model, content, temperature=0.1, top_p=0.9):
     try:
+        global client
+        if client is None:
+            client = OpenAI(
+                api_key=config["model"].get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+                base_url=config["model"].get("OPENAI_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1",
+            )
         completion = client.chat.completions.create(
             model=model,
             temperature=temperature,

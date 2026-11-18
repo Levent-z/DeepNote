@@ -5,17 +5,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from embedding_api import EmbeddingAPI
 import json
-from llama_index import SimpleDirectoryReader
 import csv
-from sentence_transformers import SentenceTransformer
 import faiss
 import argparse
 import yaml
 from glob import glob
 from itertools import chain
 from tqdm import tqdm
-from llama_index import Document
-from llama_index.node_parser import SimpleNodeParser
+from military_data import load_military_records
 
 with open("../../../config/config.yaml", "r") as f:
     config = yaml.safe_load(f)
@@ -31,16 +28,26 @@ parser.add_argument(
     "--dataset",
     type=str,
     default="2wikimultihopqa",
-    choices=["asqa", "strategyqa", "2wikimultihopqa", "hotpotqa", "musique"],
+    choices=["asqa", "strategyqa", "2wikimultihopqa", "hotpotqa", "musique", "military"],
     help="Dataset to use",
 )
 parser.add_argument("--chunk_size", type=int, default=512, help="chunk size")
 parser.add_argument("--chunk_overlap", type=int, default=0, help="chunk overlap")
 parser.add_argument("--device", type=str, default="cuda:7", help="Device to use")
+parser.add_argument(
+    "--input_path", default=str(Path(__file__).resolve().parents[3] / "data/military_input.json"),
+    help="Military JSON array or JSONL corpus path (relative to working directory, or absolute)",
+)
+parser.add_argument(
+    "--split_military", action="store_true",
+    help="Split military records using chunk_size/chunk_overlap; default keeps one record per chunk",
+)
 args = parser.parse_args()
 
 
 def split_text(data):
+    from llama_index import Document
+    from llama_index.node_parser import SimpleNodeParser
 
     documents = []
     for record in data:
@@ -77,16 +84,34 @@ if __name__ == "__main__":
             raise ValueError("--model must match embedding.model when provider is api")
         model = EmbeddingAPI(config["embedding"])
     else:
+        from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(config["model"][args.model or "bge-base-en-v1.5"], device=args.device)
     if args.dataset == "asqa" or args.dataset == "strategyqa":
         dataset_name = "wiki"
     else:
         dataset_name = args.dataset
     vectorstore_path = f"../../../data/corpus/{dataset_name}/{dataset_name}.index"
+    Path(vectorstore_path).parent.mkdir(parents=True, exist_ok=True)
     contents = []
     print("loading document ...")
     start = time.time()
-    if dataset_name == "wiki":
+    if dataset_name == "military":
+        military_records = load_military_records(args.input_path)
+        print(f"Loaded {len(military_records)} military records", flush=True)
+        contents = []
+        chunk_records = []
+        for record_index, record in enumerate(tqdm(military_records, desc="Preparing military chunks")):
+            texts = (
+                split_text([{"title": "", "content": record["text"]}])
+                if args.split_military else [record["text"]]
+            )
+            for part, text in enumerate(texts):
+                chunk_records.append({
+                    "chunk_index": len(contents), "record_index": record_index, "id": record["id"],
+                    "part": part, "metadata": record.get("metadata", {}),
+                })
+                contents.append(text)
+    elif dataset_name == "wiki":
         if not use_api and os.path.exists("../../../data/corpus/wiki/gtr_wikipedia_index.pkl"):
             reused_gtr_embeddings = True
             import pickle
@@ -192,7 +217,9 @@ if __name__ == "__main__":
                     tot += 1
 
     if dataset_name != "wiki":
-        contents = split_text(contents)
+        if dataset_name != "military":
+            contents = split_text(contents)
+        print(f"Generating embeddings for {len(contents)} chunks ...", flush=True)
         embedding_start = time.perf_counter()
         embeddings = model.encode(contents, batch_size=600)
         embedding_seconds = time.perf_counter() - embedding_start
@@ -200,6 +227,9 @@ if __name__ == "__main__":
             f"../../../data/corpus/{dataset_name}/chunk.json", "w", encoding="utf-8"
         ) as fout:
             json.dump(contents, fout, ensure_ascii=False)
+        if dataset_name == "military":
+            with open(Path(vectorstore_path).parent / "chunk_records.json", "w", encoding="utf-8") as fout:
+                json.dump(chunk_records, fout, ensure_ascii=False)
     print("Building index ...")
     faiss_start = time.perf_counter()
     build_index(embeddings, vectorstore_path)
@@ -213,8 +243,10 @@ if __name__ == "__main__":
         "dataset": args.dataset,
         "provider": "api" if use_api else "local",
         "model": config["embedding"]["model"] if use_api else (args.model or "bge-base-en-v1.5"),
-        "chunk_size": args.chunk_size if dataset_name != "wiki" else None,
-        "chunk_overlap": args.chunk_overlap if dataset_name != "wiki" else None,
+        "chunk_size": args.chunk_size if dataset_name != "wiki" and (dataset_name != "military" or args.split_military) else None,
+        "chunk_overlap": args.chunk_overlap if dataset_name != "wiki" and (dataset_name != "military" or args.split_military) else None,
+        "chunk_strategy": "record" if dataset_name == "military" and not args.split_military else ("wiki_passage" if dataset_name == "wiki" else "split"),
+        "input_path": str(Path(args.input_path).resolve()) if dataset_name == "military" else None,
         "batch_size": model.batch_size if use_api else (100 if dataset_name == "wiki" else 600),
         "vector_count": int(embeddings.shape[0]),
         "vector_dimension": int(embeddings.shape[1]),
