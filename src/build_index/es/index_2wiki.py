@@ -1,3 +1,4 @@
+from es_support import create_client, prepare_index_body
 from build_timing import BuildTiming
 from argparse import ArgumentParser
 from elasticsearch import Elasticsearch
@@ -33,7 +34,7 @@ def process_line(data):
     )
 
 
-es = Elasticsearch(hosts="http://localhost:9200", timeout=100)
+es = create_client(timeout=100)
 
 
 def index_chunk(chunk):
@@ -64,11 +65,13 @@ def main(args):
     if not args.dry:
         # add
         if es.indices.exists(index=INDEX_NAME):
+            if not args.reindex:
+                raise ValueError(f"Index {INDEX_NAME} already exists; refusing to overwrite. Verify server and backup before --reindex")
             es.indices.delete(index=INDEX_NAME, ignore=[400, 403])
         es.indices.create(
             index=INDEX_NAME,
             ignore=400,
-            body=json.dumps(
+            body=prepare_index_body(
                 {
                     "mappings": {
                         "doc": {

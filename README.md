@@ -54,6 +54,31 @@ python index_musique.py
 python index_hotpotqa.py
 ```
 
+All ES builders read `es.url` from `config/config.yaml` (ES 7.x and the pinned
+7.x Python client). Legacy 2Wiki/MusiQue builders still require all corpus
+train/dev/test files listed in their source, and replace existing same-name
+indices only when explicitly passed `--reindex`. Without it they refuse to
+overwrite. Builders check server identity before writing and reject OpenSearch
+and non-7.x servers. Verify the dedicated Elasticsearch endpoint before use.
+Missing files must be supplied before using those builders.
+
+Military BM25, from the same `src/build_index/es` directory:
+
+```bash
+# One input record per document:
+python index_military.py --input_path ../../../data/military_input.json
+# Or reuse exact vector chunks for matching retrieval units:
+python index_military.py --chunk_file ../../../data/corpus/military/chunk.json
+```
+
+Military defaults to the built-in `cjk` analyzer, requiring no IK plugin. To
+use an installed IK analyzer pass `--analyzer ik_max_word`. Replacing an existing
+military ES index requires adding `--reindex`. Original record IDs may repeat;
+ES document IDs use sequential positions to preserve all records. The
+`military` index can be queried with `main.py --dataset military
+--retrieve_method es`. No embedding or generation service is needed to build
+BM25. Military and the other builders save timings under the corpus directory.
+
 BM25 scripts print wall-clock timings and save `bm25.stats.json` under
 `data/corpus/{dataset}/`. Reports include data processing, index setup
 (including replacement of an existing index), bulk indexing, explicit ES

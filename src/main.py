@@ -94,8 +94,6 @@ parser.add_argument("--model_backend", choices=["auto", "api", "local"], default
 args = parser.parse_args()
 if args.eval_backend == "jybigdata" and args.method != "deepnote":
     parser.error("jybigdata evaluation currently requires --method deepnote for retrieval logs")
-if args.dataset == "military" and args.retrieve_method != "emb":
-    parser.error("military currently requires --retrieve_method emb")
 if args.MaxClients < 1:
     parser.error("--MaxClients must be positive")
 if args.max_questions is not None and args.max_questions < 1:

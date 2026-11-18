@@ -1,3 +1,4 @@
+from es_support import create_client, prepare_index_body
 from build_timing import BuildTiming
 from argparse import ArgumentParser
 import bz2
@@ -44,7 +45,7 @@ def generate_indexing_queries_from_bz2(bz2file, dry=False):
     return "\n".join(body)
 
 
-es = Elasticsearch(hosts="http://localhost:9200", timeout=50)
+es = create_client(timeout=50)
 
 
 def index_chunk(chunk):
@@ -56,12 +57,14 @@ def main(args):
     timing = BuildTiming()
     if not args.dry:
         if es.indices.exists(index=WIKIPEDIA_INDEX_NAME):
+            if not args.reindex:
+                raise ValueError(f"Index {WIKIPEDIA_INDEX_NAME} already exists; refusing to overwrite. Verify server and backup before --reindex")
             es.indices.delete(index=WIKIPEDIA_INDEX_NAME, ignore=[400, 403])
         if not es.indices.exists(index=WIKIPEDIA_INDEX_NAME):
             es.indices.create(
                 index=WIKIPEDIA_INDEX_NAME,
                 ignore=400,
-                body=json.dumps(
+                body=prepare_index_body(
                     {
                         "mappings": {
                             "doc": {
