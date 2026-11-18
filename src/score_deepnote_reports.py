@@ -237,8 +237,56 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+def reference_documents(question):
+    """run_test permits an empty reference list, but not a missing field."""
+    if "references" in question:
+        refs = question["references"]
+        if not isinstance(refs, list) or any(
+            not isinstance(ref, (list, tuple)) or not ref or not isinstance(ref[0], str)
+            for ref in refs
+        ):
+            raise ValueError("references must be a list of [document text, ...] entries")
+        return [ref[0].replace("...", "") for ref in refs]
+    docs = question.get("gold_docs")
+    if not isinstance(docs, list) or any(not isinstance(doc, str) for doc in docs):
+        raise ValueError("gold_docs must be a list of strings (empty list is allowed), or supply references")
+    return docs
+
+
+def skip_empty_references(questions):
+    kept, skipped = [], []
+    for position, question in enumerate(questions):
+        field = "references" if "references" in question else "gold_docs"
+        value = question.get(field)
+        empty = value is None or value == [] or value == "" or (
+            field == "gold_docs" and isinstance(value, list)
+            and all(isinstance(doc, str) and not doc.strip() for doc in value)
+        )
+        if empty:
+            skipped.append({"original_index": position, "question": question.get("question"),
+                            "reason": f"Missing or empty {field}"})
+        else:
+            record = copy.deepcopy(question)
+            record["original_question_index"] = position
+            kept.append(record)
+    if not kept:
+        raise ValueError("No questions remain after skipping empty reference documents")
+    validate_questions(kept)  # Malformed nonempty fields still fail; do not silently hide errors.
+    return kept, skipped
+
+
+def validate_questions(questions):
+    for position, question in enumerate(questions):
+        try:
+            if question.get("answer") is None or not str(question["answer"]).strip():
+                raise ValueError("missing or empty answer")
+            reference_documents(question)
+        except ValueError as exc:
+            raise ValueError(f"Question #{position + 1} (index {position}), {question.get('question', '')[:100]!r}: {exc}") from exc
+
+
 def prepare_report(path, questions):
-    from eval_jybigdata import gold_documents, retrieved_documents
+    from eval_jybigdata import retrieved_documents
     report = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(report, dict) or not report.get("summary", {}).get("complete"):
         raise ValueError(f"Report is incomplete: {path}")
@@ -262,13 +310,7 @@ def prepare_report(path, questions):
         item = copy.deepcopy(row)
         item["answer"] = question["answer"]
         # Match run_test: references overrides gold_docs; empty gold_docs is permitted.
-        if "references" in question:
-            item["gold_docs"] = gold_documents(question)
-        else:
-            docs = question.get("gold_docs")
-            if not isinstance(docs, list) or any(not isinstance(d, str) for d in docs):
-                raise ValueError(f"Invalid gold_docs at position {row['id']}")
-            item["gold_docs"] = docs
+        item["gold_docs"] = reference_documents(question)
         item["qa_elapsed_s"] = row.get("performance", {}).get("total_seconds", 0)
         item["llm_answer"] = row.get("output")
         item["retrieved_results"] = retrieved_documents(row)

@@ -24,15 +24,26 @@ fi
 cd -- "${ROOT_DIR}/src"
 
 # Read-only preflight: catch missing inputs/wrong ES service before a long run.
-"$PYTHON_BIN" - "$QUESTION_FILE" "$MAX_QUESTIONS" <<'PY'
+"$PYTHON_BIN" - "$QUESTION_FILE" "$MAX_QUESTIONS" "$OUTPUT_DIR" <<'PY'
 import sys
 from pathlib import Path
 from prediction_report import load_questions, limit_questions
 questions = load_questions(sys.argv[1], require_answer=True)
 selected = limit_questions(questions, int(sys.argv[2]) if sys.argv[2] else None)
-from eval_jybigdata import gold_documents
-for question in selected:
-    gold_documents(question)
+from score_deepnote_reports import skip_empty_references, write_json
+selected_count = len(selected)
+selected, skipped = skip_empty_references(selected)
+filtered_path = Path(sys.argv[3]) / 'military_generate_questions.filtered.json'
+if filtered_path.resolve() == Path(sys.argv[1]).resolve():
+    raise ValueError('Filtered output must not overwrite the original question file')
+write_json(filtered_path, selected)
+write_json(Path(sys.argv[3]) / 'military_generate_questions.skipped.json', {
+    'source_question_file': str(Path(sys.argv[1]).resolve()),
+    'input_count': len(questions), 'selected_before_filter': selected_count,
+    'kept_count': len(selected), 'skipped_count': len(skipped), 'skipped': skipped,
+})
+for item in skipped:
+    print(f"Skipping original question #{item['original_index'] + 1}: {item['reason']} ({item['question']})")
 import yaml
 settings = yaml.safe_load(Path('../config/config.yaml').read_text(encoding='utf-8'))
 for name in ('generation', 'embedding', 'evaluation'):
@@ -48,6 +59,7 @@ if not es.indices.exists(index='military'):
     raise ValueError('military BM25 index is missing from the configured Elasticsearch service')
 print(f'Preflight passed: {len(questions)} input questions; selecting {len(selected)}')
 PY
+QUESTION_FILE="${OUTPUT_DIR}/military_generate_questions.filtered.json"
 
 COMMON_ARGS=(
   --model_backend api --dataset military --method deepnote

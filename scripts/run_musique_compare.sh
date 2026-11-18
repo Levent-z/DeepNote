@@ -30,9 +30,8 @@ from pathlib import Path
 from prediction_report import load_questions, limit_questions
 questions = load_questions(sys.argv[1], require_answer=True)
 selected = limit_questions(questions, int(sys.argv[2]))
-from eval_jybigdata import gold_documents
-for question in selected:
-    gold_documents(question)
+from score_deepnote_reports import validate_questions
+validate_questions(selected)
 import yaml
 settings = yaml.safe_load(Path('../config/config.yaml').read_text(encoding='utf-8'))
 for name in ('generation', 'embedding', 'evaluation'):
