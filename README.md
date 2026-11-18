@@ -218,6 +218,81 @@ bash train.sh
 
 # Running DeepNote and Evaluation
 
+## Sequential MusiQue vector/BM25 comparison
+
+The same pipeline is available for the two military question sets:
+
+```bash
+bash scripts/run_military_15_compare.sh
+bash scripts/run_military_generate_compare.sh
+```
+
+They read `/data/shared/data/question/military_15.json` and
+`/data/shared/data/question/military_generate.json`, respectively. Outputs go to
+`output/military_15/` and `output/military_generate/`, with matching
+`military_15_deepnote_*` or `military_generate_deepnote_*` filenames. Both use
+the existing `military` FAISS and ES indices, all questions by default,
+top-k 15, max_step 4 and max_top_k 60. Set `MAX_QUESTIONS=20` for an optional
+smaller run. Each runs emb, then es, then
+the same offline scorer. Neither builds/replaces indices. Like the MusiQue
+script, existing generation reports stop the run; environment overrides
+`OUTPUT_DIR`, `QUESTION_FILE`, `MAX_QUESTIONS`, `PYTHON_BIN` work
+the same way. Both military question files need answers and gold documents for
+the final scoring stage.
+
+Activate the DeepNote environment, then run from any directory:
+
+```bash
+bash /path/to/DeepNote/scripts/run_musique_compare.sh
+```
+
+The script runs the first 200 questions from
+`/data/shared/data/question/musique_questions.json`: vector generation first,
+BM25 generation second, then offline judging of both saved reports. Both runs
+use API generation, top-k 15, max_step 4, max_top_k 60, max_fail_step 2 (default)
+and one concurrent question by default. Configure generation, embedding,
+evaluation and the dedicated ES 7 endpoint in `config/config.yaml` first.
+Both MusiQue indices must already exist. Preflight checks are read-only; this
+script does not build, delete or replace ES indices. Existing generation
+reports cause it to stop; use a fresh output directory to preserve earlier runs.
+
+```bash
+OUTPUT_DIR=/path/to/new_results MAX_QUESTIONS=200 \
+  bash scripts/run_musique_compare.sh
+```
+
+`QUESTION_FILE` and `PYTHON_BIN` can also override the defaults. The script
+omits `--MaxClients`, using `main.py`'s default concurrency of 1. The script
+prefers `.venv/bin/python` if present, otherwise the active `python`. It does
+not set BLAS/OpenMP thread environment variables. Shell failures stop the
+pipeline. Per-question QA/judge failures remain in scored results and count
+in the primary accuracy denominator, matching `run_test.py`.
+
+Outputs include `musique_deepnote_emb.json`, `musique_deepnote_bm25.json`, a
+`.scored.json` counterpart for each, and `musique_deepnote_comparison.json`.
+The default output directory is `output/musique/`.
+Generation reports are never overwritten by scoring. To score again without
+regenerating answers:
+
+```bash
+cd src
+python score_deepnote_reports.py \
+  --reports ../output/musique/musique_deepnote_emb.json ../output/musique/musique_deepnote_bm25.json \
+  --question-file /data/shared/data/question/musique_questions.json
+```
+
+`score_deepnote_reports.py` copies the current `run_test.py` scoring functions:
+judge temperature 0, the same prompts/substr shortcut, strict JSON parsing,
+recall without epsilon, all-selected primary accuracy and separate answerable
+accuracy. It does not import that framework's RAG modules. Only its LLM client
+is adapted to the official SDK; judge backend/model/defaults must match your
+comparison framework. Token usage is marked unavailable rather than zero.
+All retrieval rounds contribute to recall. A gold full document will not match
+shorter split chunks unless fully contained in one returned chunk; use matching
+text units when interpreting the recall comparison. This new scoring command
+uses the current run_test rules; `--eval_backend jybigdata` still uses the older
+provided evaluator's distinct rules.
+
 ## Save answers, retrieved materials and timings without scoring
 
 ### Jiugе / G9 generation API

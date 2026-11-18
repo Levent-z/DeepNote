@@ -438,8 +438,12 @@ if __name__ == "__main__":
             if args.method != "deepnote"
             else f"{save_path}/topk-{args.retrieve_top_k}__max_step-{args.max_step}__max_fail_step-{args.max_fail_step}-{formatted_time}.jsonl"
         )
-    logger.info(f"The predicted results will be saved in '{filepath}'.")
     report_path = args.output_path or filepath + ".report.json"
+    if args.eval_backend == "none":
+        logger.info("Answers, retrieved materials and performance will be saved in '%s' (resolved: %s).",
+                    report_path, Path(report_path).resolve())
+    else:
+        logger.info("The predicted results will be saved in '%s'.", filepath)
     if args.eval_backend == "none" and Path(report_path).resolve() == Path(question_path).resolve():
         raise ValueError("Output report must not overwrite the question file")
     tracker = PerformanceTracker()
