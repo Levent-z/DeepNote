@@ -251,6 +251,15 @@ atomically updated after each completed batch; completed batches survive a
 later interruption. Resuming these reports is not yet supported. An existing
 output report at the selected path is replaced.
 
+Add `--max_questions 100` to process at most the first 100 questions in file
+order; omit the option to process all. Values must be positive integers, and
+limits larger than the input simply use all available questions. Logs show
+input/selected counts and resumed/remaining counts. Generation reports record
+`run.input_question_count`, `run.max_questions`, `run.question_count`, and
+actual completed/successful/failed counts in `summary`. The same option is
+available in the standalone `eval_jybigdata.py` scorer, limiting the first N
+prediction records without renumbering their question IDs.
+
 ## Unified jybigdata evaluation
 
 `main.py` now defaults to `--eval_backend jybigdata` for the DeepNote method.

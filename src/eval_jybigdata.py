@@ -332,11 +332,20 @@ def main():
     parser.add_argument("--question_file", help="Same original question JSON array used for prediction, including gold_docs/references")
     parser.add_argument("--config", default=str(Path(__file__).resolve().parents[1] / "config/config.yaml"))
     parser.add_argument("--output_path", help="Scored result JSON; default: <pred_path>.jybigdata.json")
+    parser.add_argument("--max_questions", type=int, default=None,
+                        help="Score at most the first N predictions in file order; omit for all")
     args = parser.parse_args()
+    if args.max_questions is not None and args.max_questions < 1:
+        parser.error("--max_questions must be positive")
     import yaml
     settings = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")).get("evaluation", {})
     questions = json.loads(Path(args.question_file).read_text(encoding="utf-8")) if args.question_file else None
-    asyncio.run(evaluate_predictions(load_predictions(args.pred_path), settings,
+    predictions = load_predictions(args.pred_path)
+    total_predictions = len(predictions)
+    if args.max_questions is not None:
+        predictions = predictions[:args.max_questions]
+    print(f"Prediction file: {total_predictions} total; scoring this run: {len(predictions)}")
+    asyncio.run(evaluate_predictions(predictions, settings,
                                      args.output_path or args.pred_path + ".jybigdata.json", questions))
 
 

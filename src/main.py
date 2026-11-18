@@ -15,7 +15,7 @@ from tqdm import tqdm
 from eval import acc_score, F1_scorer, compute_exact, eval_asqa, acc_choice
 from utils import seed_everything
 from embedding_api import EmbeddingAPI
-from prediction_report import load_questions, PerformanceTracker, save_report
+from prediction_report import load_questions, limit_questions, PerformanceTracker, save_report
 from generation_api import GenerationAPI
 
 parser = argparse.ArgumentParser()
@@ -87,6 +87,8 @@ parser.add_argument("--eval_backend", choices=["jybigdata", "original", "none"],
 parser.add_argument("--question_file", default="",
                     help="Question JSON array or JSONL; none mode needs only question")
 parser.add_argument("--output_path", default="", help="Single JSON report path in --eval_backend none mode")
+parser.add_argument("--max_questions", type=int, default=None,
+                    help="Process at most the first N questions; omit to use all questions")
 parser.add_argument("--model_backend", choices=["auto", "api", "local"], default="auto",
                     help="api calls generation service; local loads vLLM weights; auto keeps legacy behavior")
 args = parser.parse_args()
@@ -96,6 +98,8 @@ if args.dataset == "military" and args.retrieve_method != "emb":
     parser.error("military currently requires --retrieve_method emb")
 if args.MaxClients < 1:
     parser.error("--MaxClients must be positive")
+if args.max_questions is not None and args.max_questions < 1:
+    parser.error("--max_questions must be a positive integer; omit it to use all questions")
 if args.eval_backend == "none" and args.resume_path:
     parser.error("Generation-only reports do not yet support --resume_path")
 if args.output_path and args.eval_backend != "none":
@@ -393,6 +397,10 @@ if __name__ == "__main__":
 
     question_path = args.question_file or f"../data/eval/{args.dataset}/test.json"
     qa_data = load_questions(question_path, require_answer=args.eval_backend != "none")
+    input_question_count = len(qa_data)
+    qa_data = limit_questions(qa_data, args.max_questions)
+    logger.info("Question file: %d total; this run: %d (max_questions=%s)",
+                input_question_count, len(qa_data), args.max_questions)
     if args.eval_backend == "jybigdata":
         from eval_jybigdata import gold_documents, evaluate_predictions
         if not config.get("evaluation", {}).get("base_url") or not config.get("evaluation", {}).get("model"):
@@ -415,6 +423,8 @@ if __name__ == "__main__":
                            for row in [json.loads(i)] if "id" in row and "output" in row]
             if [row["id"] for row in resume_data] != list(range(len(resume_data))):
                 raise ValueError("Resume predictions must be a contiguous prefix of question positions")
+            if len(resume_data) > len(qa_data):
+                raise ValueError("Resume file exceeds the selected question limit")
             for row in resume_data:
                 source = qa_data[row["id"]]
                 if row.get("question", row.get("query")) != source["question"] or row["answer"] != source["answer"]:
@@ -438,10 +448,12 @@ if __name__ == "__main__":
     run_info = {"dataset": args.dataset, "method": args.method, "model": args.model,
                 "model_backend": args.model_backend,
                 "retrieve_method": retrieve_method, "question_file": str(Path(question_path).resolve()),
+                "input_question_count": input_question_count, "max_questions": args.max_questions,
                 "question_count": len(qa_data), "max_step": args.max_step,
                 "max_fail_step": args.max_fail_step, "max_top_k": args.max_top_k,
                 "retrieve_top_k": args.retrieve_top_k, "MaxClients": args.MaxClients}
     last_id = len(resume_data)
+    logger.info("Already completed: %d; remaining: %d", last_id, len(qa_data) - last_id)
     batch_size = args.MaxClients
     logger.info("start predicting ...")
     generation_started = time.perf_counter()
@@ -479,7 +491,7 @@ if __name__ == "__main__":
         logger.info("Generation report saved to %s; summary: %s", report_path, summary)
         raise SystemExit(0)
 
-    logger.info("start evaluating ...")
+    logger.info("Generated %d question results; start evaluating ...", len(all_result))
 
     if args.eval_backend == "jybigdata":
         eval_result = asyncio.run(evaluate_predictions(
@@ -503,6 +515,7 @@ if __name__ == "__main__":
         eval_result = {"Acc": acc, "F1": f1, "EM": em}
 
     if eval_result:
+        eval_result["evaluated_questions"] = len(all_result)
         with open(filepath, "a", buffering=1) as fout:
             fout.write(json.dumps(eval_result, ensure_ascii=False) + "\n")
 

@@ -21,6 +21,12 @@ def load_questions(path, require_answer=False):
     return rows
 
 
+def limit_questions(rows, maximum=None):
+    if maximum is not None and (isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 1):
+        raise ValueError("max_questions must be a positive integer")
+    return rows if maximum is None else rows[:maximum]
+
+
 class PerformanceTracker:
     def __init__(self):
         self.local = threading.local()
