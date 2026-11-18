@@ -222,6 +222,11 @@ bash train.sh
 
 ### Jiugе / G9 generation API
 
+For the verified port-18080 endpoint, `generation.model` uses the full served
+model path. Thinking is disabled in the server startup configuration; the client
+never sends `enable_thinking` or `chat_template_kwargs`. `strip_thinking` only
+cleans returned text and does not add any request parameter.
+
 Set `generation.base_url` in `config/config.yaml` to the deployed chat service
 URL ending in `/v1`, and `generation.model` to the exact served name (for
 example `9g` or `G9v3-39A5B`, as returned by `/v1/models`). Configure its API key
@@ -237,8 +242,8 @@ API mode uses `generation.model` unless overridden with `--model 9g`. All
 DeepNote generation steps call `/v1/chat/completions` using user messages;
 the service handles the chat template. No local vLLM weights are loaded.
 API generation uses `temperature: 0.6`, omits top_p, output token limits,
-penalties, seed, stop and stream, and sends `enable_thinking: false` inside
-`chat_template_kwargs`. Timeout is 120 seconds per request. Retryable network,
+penalties, seed, stop and stream. Thinking mode is controlled by the server.
+Timeout is 120 seconds per request. Retryable network,
 timeout, rate-limit and server failures allow at most 3 total attempts with
 2 seconds between attempts; SDK retries are disabled to avoid multiplying calls.
 With `strip_thinking: true`, any text through the last `</think>` is removed

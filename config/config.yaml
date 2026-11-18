@@ -10,11 +10,11 @@ model:
   gtr-t5-xxl: "sentence-transformers/gtr-t5-xxl"
 generation:
   base_url: "http://127.0.0.1:18080/v1" # Set your Jiugе vLLM service URL, e.g. http://HOST:PORT/v1
-  model: "G9v3-39A5B" # Must match /v1/models or --served-model-name; possibly "9g".
+  model: "/data/shared/liyuyao/qaagent/jybigdata/models/G9v3-39A5B" # Must match /v1/models or --served-model-name; possibly "9g".
   api_key: "EMPTY" # Or set DEEPNOTE_GENERATION_API_KEY in your shell.
   temperature: 0.6
   # Omit top_p, token limits, penalties, seed, stop and stream: use server defaults.
-  enable_thinking: false
+  # Thinking mode is configured on the server; do not send chat_template_kwargs.
   timeout: 120
   max_attempts: 3 # Includes the initial request.
   retry_delay: 2

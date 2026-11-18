@@ -5,6 +5,7 @@ import logging
 import datetime
 import asyncio
 import time
+import re
 from pathlib import Path
 import yaml
 import faiss
@@ -111,6 +112,7 @@ if args.model_backend == "api":
         parser.error("API mode requires generation.model or --model")
 else:
     args.model = args.model or "llama-3.1-8b-instruct"
+model_label = re.sub(r"[^A-Za-z0-9._-]+", "_", args.model.rstrip("/").rsplit("/", 1)[-1])
 
 
 @backoff.on_exception(backoff.expo, (Exception), max_time=500)
@@ -340,7 +342,7 @@ if __name__ == "__main__":
     )
     save_log_to_file(
         logger,
-        log_file=f"{args.dataset}_{args.method}_{args.model}",
+        log_file=f"{args.dataset}_{args.method}_{model_label}",
         log_folder="../log",
     )
     logger.info(f"{'*' * 30} CONFIGURATION {'*' * 30}")
@@ -410,7 +412,7 @@ if __name__ == "__main__":
     if args.dataset in ["asqa", "strategyqa"]:
         retrieve_method = "emb"
 
-    save_path = f"../output/{args.dataset}/{retrieve_method}/{args.method}/{args.model}"
+    save_path = f"../output/{args.dataset}/{retrieve_method}/{args.method}/{model_label}"
     os.makedirs(save_path, exist_ok=True)
 
     all_result = []

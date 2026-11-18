@@ -16,7 +16,6 @@ class GenerationAPI:
         if not self.model:
             raise ValueError("Set generation.model or pass --model with the served model name")
         self.temperature = float(settings.get("temperature", 0.6))
-        self.enable_thinking = bool(settings.get("enable_thinking", False))
         self.max_attempts = int(settings.get("max_attempts", 3))
         self.retry_delay = float(settings.get("retry_delay", 2))
         if self.max_attempts < 1 or self.retry_delay < 0:
@@ -31,13 +30,13 @@ class GenerationAPI:
 
     def __call__(self, prompt_file, variables):
         prompt = Path(prompt_file).read_text(encoding="utf-8").format(**variables)
+        request = {
+            "model": self.model, "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.temperature,
+        }
         for attempt in range(self.max_attempts):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model, messages=[{"role": "user", "content": prompt}],
-                    temperature=self.temperature,
-                    extra_body={"chat_template_kwargs": {"enable_thinking": self.enable_thinking}},
-                )
+                response = self.client.chat.completions.create(**request)
                 break
             except Exception as exc:
                 status = getattr(exc, "status_code", None)
