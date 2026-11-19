@@ -17,7 +17,7 @@ mkdir -p -- "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd -- "$OUTPUT_DIR" && pwd)"
 EMB_REPORT="${OUTPUT_DIR}/musique_deepnote_emb.json"
 BM25_REPORT="${OUTPUT_DIR}/musique_deepnote_bm25.json"
-if [[ -e "$EMB_REPORT" || -e "$BM25_REPORT" ]]; then
+if [[ -e "$EMB_REPORT" || -e "$BM25_REPORT" || -e "${EMB_REPORT%.json}.jsonl" || -e "${BM25_REPORT%.json}.jsonl" ]]; then
   echo "Output reports already exist. Set OUTPUT_DIR to a fresh directory to preserve prior runs." >&2
   exit 1
 fi

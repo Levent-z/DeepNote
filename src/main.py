@@ -393,7 +393,7 @@ if __name__ == "__main__":
     else:
         from es_retrieve import retrieve
 
-    formatted_time = datetime.datetime.now().strftime("%Y%m%d-%H:%M:%S")
+    formatted_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     question_path = args.question_file or f"../data/eval/{args.dataset}/test.json"
     qa_data = load_questions(question_path, require_answer=args.eval_backend != "none")
@@ -412,8 +412,7 @@ if __name__ == "__main__":
     if args.dataset in ["asqa", "strategyqa"]:
         retrieve_method = "emb"
 
-    save_path = f"../output/{args.dataset}/{retrieve_method}/{args.method}/{model_label}"
-    os.makedirs(save_path, exist_ok=True)
+    save_path = Path("../output") / args.dataset
 
     all_result = []
 
@@ -427,25 +426,31 @@ if __name__ == "__main__":
                 raise ValueError("Resume file exceeds the selected question limit")
             for row in resume_data:
                 source = qa_data[row["id"]]
-                if row.get("question", row.get("query")) != source["question"] or row["answer"] != source["answer"]:
+                if row.get("question", row.get("query")) != source["question"] or row["answer"] != source.get("answer"):
                     raise ValueError("Resume predictions do not match the selected question file")
             all_result = resume_data
             filepath = args.resume_path
     else:
         resume_data = []
-        filepath = (
-            f"{save_path}/topk-{args.retrieve_top_k}-{formatted_time}.jsonl"
-            if args.method != "deepnote"
-            else f"{save_path}/topk-{args.retrieve_top_k}__max_step-{args.max_step}__max_fail_step-{args.max_fail_step}-{formatted_time}.jsonl"
-        )
-    report_path = args.output_path or filepath + ".report.json"
+        if args.eval_backend == "none" and args.output_path:
+            report_path = Path(args.output_path)
+            filepath = report_path.with_suffix(".jsonl")
+        else:
+            stem = f"{args.method}_{retrieve_method}_{model_label}_topk-{args.retrieve_top_k}_{formatted_time}"
+            filepath = save_path / (stem + ".jsonl")
+    filepath = Path(filepath)
     if args.eval_backend == "none":
-        logger.info("Answers, retrieved materials and performance will be saved in '%s' (resolved: %s).",
-                    report_path, Path(report_path).resolve())
+        report_path = Path(args.output_path) if args.output_path else filepath.with_suffix(".report.json")
+        if len({filepath.resolve(), report_path.resolve(), Path(question_path).resolve()}) != 3:
+            raise ValueError("Result and report paths must be distinct and must not overwrite the question file")
+        for target in (filepath, report_path):
+            if target.exists():
+                raise FileExistsError(f"Output already exists: {target}")
+        logger.info("Prediction results: %s", filepath.resolve())
+        logger.info("Generation report: %s", report_path.resolve())
     else:
         logger.info("The predicted results will be saved in '%s'.", filepath)
-    if args.eval_backend == "none" and Path(report_path).resolve() == Path(question_path).resolve():
-        raise ValueError("Output report must not overwrite the question file")
+    filepath.parent.mkdir(parents=True, exist_ok=True)
     tracker = PerformanceTracker()
     retrieve = tracker.wrap("retrieval", retrieve)
     call_llm = tracker.wrap("generation", call_llm)
@@ -462,6 +467,7 @@ if __name__ == "__main__":
     logger.info("start predicting ...")
     generation_started = time.perf_counter()
     if args.eval_backend == "none":
+        filepath.touch(exist_ok=False)
         save_report(report_path, [], run_info, 0)
     for i in tqdm(range(last_id, len(qa_data), batch_size)):
         pool = ThreadPool(processes=args.MaxClients)
@@ -483,9 +489,8 @@ if __name__ == "__main__":
                 if args.eval_backend == "jybigdata":
                     result["gold_docs"] = gold_documents(qa_data[result["id"]])
                 all_result.append(result)
-                if args.eval_backend != "none":
-                    with open(filepath, "a", buffering=1) as fout:
-                        fout.write(json.dumps(result, ensure_ascii=False) + "\n")
+                with open(filepath, "a", encoding="utf-8", buffering=1) as fout:
+                    fout.write(json.dumps(result, ensure_ascii=False) + "\n")
         if args.eval_backend == "none":
             save_report(report_path, all_result, run_info, time.perf_counter() - generation_started)
 
@@ -499,7 +504,7 @@ if __name__ == "__main__":
 
     if args.eval_backend == "jybigdata":
         eval_result = asyncio.run(evaluate_predictions(
-            all_result, config["evaluation"], filepath + ".jybigdata.json", qa_data
+            all_result, config["evaluation"], str(filepath) + ".jybigdata.json", qa_data
         ))
         logger.info("eval result: %s", eval_result)
         raise SystemExit(0)

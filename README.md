@@ -444,3 +444,7 @@ DeepNote does not currently record the comparison framework's
 python main.py --method deepnote --retrieve_top_k 5 --dataset hotpotqa --max_step 3 --max_fail_step 2 --MaxClients 5 --model gpt-4o-mini-2024-07-18 --device cuda:0 
 ```
 The predicted results and evaluation metrics will be automatically saved in the `output/{dataset}/` directory. The evaluation results can be found at the end of the file.
+
+### Prediction output files
+
+Generation-only runs (`--eval_backend none`) save two files in the same directory: a JSONL file containing one prediction per line, and a JSON report containing run settings, statistics, and the same results for compatibility with the comparison scoring scripts. Both are updated after each completed batch. With `--output_path ../output/example.json`, the files are `example.json` (report) and `example.jsonl` (predictions). Without `--output_path`, both files are placed in `output/{dataset}/` with matching timestamped names. Evaluation-enabled runs also place their JSONL predictions in `output/{dataset}/`.
