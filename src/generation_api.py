@@ -20,6 +20,9 @@ class GenerationAPI:
         self.retry_delay = float(settings.get("retry_delay", 2))
         if self.max_attempts < 1 or self.retry_delay < 0:
             raise ValueError("max_attempts must be positive and retry_delay nonnegative")
+        self.enable_thinking = settings.get("enable_thinking")
+        if self.enable_thinking is not None and not isinstance(self.enable_thinking, bool):
+            raise ValueError("generation.enable_thinking must be true, false, or null")
         self.strip_thinking = settings.get("strip_thinking", True)
         self.client = OpenAI(
             base_url=settings["base_url"],
@@ -34,6 +37,8 @@ class GenerationAPI:
             "model": self.model, "messages": [{"role": "user", "content": prompt}],
             "temperature": self.temperature,
         }
+        if self.enable_thinking is not None:
+            request["extra_body"] = {"chat_template_kwargs": {"enable_thinking": self.enable_thinking}}
         for attempt in range(self.max_attempts):
             try:
                 response = self.client.chat.completions.create(**request)

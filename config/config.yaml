@@ -14,7 +14,7 @@ generation:
   api_key: "EMPTY" # Or set DEEPNOTE_GENERATION_API_KEY in your shell.
   temperature: 0.6
   # Omit top_p, token limits, penalties, seed, stop and stream: use server defaults.
-  # Thinking mode is configured on the server; do not send chat_template_kwargs.
+  enable_thinking: null # true/false sends vLLM chat_template_kwargs; null uses server default.
   timeout: 120
   max_attempts: 3 # Includes the initial request.
   retry_delay: 2
