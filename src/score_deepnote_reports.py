@@ -377,6 +377,24 @@ async def score_report(path, questions, settings, output_path):
     return result
 
 
+
+def comparison_payload(summaries):
+    metrics = []
+    for item in summaries:
+        summary = item["summary"]
+        metrics.append({"retrieve_method": item["retrieve_method"],
+                        "accuracy": summary["accuracy"],
+                        "recall_on_answerable": summary["avg_multiround_recall_on_answerable"],
+                        "total_questions": summary["total"], "answerable_questions": summary["answerable"],
+                        "qa_errors": summary["qa_errors"], "judge_errors": summary["judge_errors"]})
+    return {"metrics": metrics,
+            "metric_definitions": {
+                "accuracy": "Correct answers / all selected questions, including errors.",
+                "recall_on_answerable": "Average multiround reference recall for judge-accepted answerable questions; null if none.",
+            },
+            "scoring_protocol": "src/run_test.py", "reports": summaries}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reports", nargs="+", required=True)
@@ -403,8 +421,16 @@ def main():
     for path, output in zip(args.reports, output_paths):
         result = asyncio.run(score_report(path, questions, settings, output))
         summaries.append({"source_report": path, "scored_report": output,
-                          "summary": result["summary"], "generation_summary": result["generation_summary"]})
-    write_json(destination, {"scoring_protocol": "src/run_test.py", "reports": summaries})
+                          "summary": result["summary"], "generation_summary": result["generation_summary"],
+                          "retrieve_method": result["generation_run"].get("retrieve_method", "unknown")})
+    comparison = comparison_payload(summaries)
+    write_json(destination, comparison)
+    print("Accuracy and recall (answerable questions):")
+    for metric in comparison["metrics"]:
+        recall = metric["recall_on_answerable"]
+        print(f"  {metric['retrieve_method']}: accuracy={metric['accuracy']:.4f}, "
+              f"recall={recall:.4f}" if recall is not None else
+              f"  {metric['retrieve_method']}: accuracy={metric['accuracy']:.4f}, recall=N/A")
     print(f"Comparison saved: {destination}")
 
 
