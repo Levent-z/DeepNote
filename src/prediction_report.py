@@ -1,9 +1,15 @@
 """Question input, thread-local timing, and a single prediction report."""
 
 import json
+import contextvars
+import logging
 from pathlib import Path
 import threading
 import time
+
+
+question_id_context = contextvars.ContextVar("question_id", default=None)
+logger = logging.getLogger(__name__)
 
 
 def load_questions(path, require_answer=False):
@@ -47,11 +53,14 @@ class PerformanceTracker:
         self.local.metrics = {"retrieval_seconds": 0.0, "retrieval_calls": 0,
                               "generation_seconds": 0.0, "generation_calls": 0}
         started = time.perf_counter()
+        context_token = question_id_context.set(idx)
+        logger.info("Question started: id=%s", idx)
         try:
             try:
                 row = function(idx, question, args)
                 row["status"] = "success"
             except Exception as exc:
+                logger.warning("Question failed: id=%s error_type=%s error=%s", idx, type(exc).__name__, exc)
                 if args.eval_backend != "none":
                     raise
                 row = {"id": idx, "question": question["question"],
@@ -72,6 +81,8 @@ class PerformanceTracker:
             row["unique_retrieved_material_count"] = len(row["retrieved_materials"])
             return row
         finally:
+            logger.info("Question finished: id=%s elapsed=%.1fs", idx, time.perf_counter() - started)
+            question_id_context.reset(context_token)
             self.local.metrics = None
 
 
