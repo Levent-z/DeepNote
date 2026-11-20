@@ -350,14 +350,16 @@ if __name__ == "__main__":
         keystr = "{}".format(key) + (" " * (30 - len(key)))
         logger.info("%s -->   %s", keystr, val)
     dataset_name = args.dataset
-    vector_path = f"../data/corpus/{dataset_name}/{dataset_name}.index"
+    index_directory = Path("../data/index").resolve() / dataset_name
+    vector_path = str(index_directory / f"{dataset_name}.index")
     use_embedding_api = config.get("embedding", {}).get("provider", "local") == "api"
     if args.dataset == "asqa" or args.dataset == "strategyqa":
 
-        vector = faiss.read_index(f"../data/corpus/wiki/wiki.index")
+        vector_path = str(Path("../data/index").resolve() / "wiki" / "wiki.index")
+        vector = faiss.read_index(vector_path)
         if use_embedding_api:
             emb_model = EmbeddingAPI(config["embedding"])
-            emb_model.validate_index("../data/corpus/wiki/wiki.index")
+            emb_model.validate_index(vector_path)
         else:
             from sentence_transformers import SentenceTransformer
             emb_model = SentenceTransformer(config["model"]["gtr-t5-xxl"], device="cpu")
@@ -381,7 +383,7 @@ if __name__ == "__main__":
             emb_model = SentenceTransformer(
                 config["model"]["bge-base-en-v1.5"], device=args.device
             )
-        with open(f"../data/corpus/{args.dataset}/chunk.json", encoding="utf-8") as f:
+        with open(index_directory / "chunk.json", encoding="utf-8") as f:
             raw_data = json.load(f)
         vector = faiss.read_index(vector_path)
 

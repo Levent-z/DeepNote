@@ -121,7 +121,7 @@ def main():
     parser.add_argument("--chunk-file", help="JSON array of texts in exactly the vector row order")
     parser.add_argument("--dataset", required=True, help="Dataset name used by main.py")
     parser.add_argument("--model", required=True, help="Embedding model that produced the vectors")
-    parser.add_argument("--output-root", default=str(Path(__file__).resolve().parents[3] / "data" / "corpus"))
+    parser.add_argument("--output-root", default=str(Path(__file__).resolve().parents[3] / "data" / "index"))
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     path, shape = import_vectors(args.vectors, args.dataset, args.model, args.output_root, args.chunk_file, args.overwrite)

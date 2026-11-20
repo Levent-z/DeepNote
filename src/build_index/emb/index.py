@@ -90,7 +90,7 @@ if __name__ == "__main__":
         dataset_name = "wiki"
     else:
         dataset_name = args.dataset
-    vectorstore_path = f"../../../data/corpus/{dataset_name}/{dataset_name}.index"
+    vectorstore_path = f"../../../data/index/{dataset_name}/{dataset_name}.index"
     Path(vectorstore_path).parent.mkdir(parents=True, exist_ok=True)
     contents = []
     print("loading document ...")
@@ -224,7 +224,7 @@ if __name__ == "__main__":
         embeddings = model.encode(contents, batch_size=600)
         embedding_seconds = time.perf_counter() - embedding_start
         with open(
-            f"../../../data/corpus/{dataset_name}/chunk.json", "w", encoding="utf-8"
+            f"../../../data/index/{dataset_name}/chunk.json", "w", encoding="utf-8"
         ) as fout:
             json.dump(contents, fout, ensure_ascii=False)
         if dataset_name == "military":

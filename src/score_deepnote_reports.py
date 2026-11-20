@@ -207,7 +207,7 @@ async def calc_recal_rate(gold_doc: list, retrieve_docs: list) -> float:
     return recall_count / len(gold_doc) if gold_doc else 0.0
 
 
-def source_paragraphs(dataset, corpus_dir):
+def source_paragraphs(dataset, corpus_dir, index_dir=None):
     if dataset == "musique":
         for variant in ("ans", "full"):
             for split in ("train", "dev", "test"):
@@ -233,7 +233,7 @@ def source_paragraphs(dataset, corpus_dir):
                     yield record["title"], "".join(record["text"])
     elif dataset == "military":
         from build_index.emb.military_data import load_military_records
-        stats_path = corpus_dir / "military.index.stats.json"
+        stats_path = (index_dir or corpus_dir) / "military.index.stats.json"
         input_path = (Path(__file__).resolve().parents[1] / "data" / "military_input.json")
         if stats_path.exists():
             stats = json.loads(stats_path.read_text(encoding="utf-8-sig"))
@@ -245,8 +245,8 @@ def source_paragraphs(dataset, corpus_dir):
         raise ValueError(f"Embedding recall mapping is unsupported for dataset: {dataset}")
 
 
-def map_chunks(rows, corpus_dir, dataset):
-    chunk_path = corpus_dir / "chunk.json"
+def map_chunks(rows, corpus_dir, dataset, index_dir=None):
+    chunk_path = (index_dir or corpus_dir) / "chunk.json"
     chunk_data = json.loads(chunk_path.read_text(encoding="utf-8-sig"))
     if not isinstance(chunk_data, list) or any(not isinstance(chunk, str) for chunk in chunk_data):
         raise ValueError(f"Invalid embedding chunks: {chunk_path}")
@@ -265,7 +265,7 @@ def map_chunks(rows, corpus_dir, dataset):
         return {}
     pattern = re.compile("(?=(" + "|".join(re.escape(anchor) for anchor in anchors) + "))")
     mapped = {doc: set() for doc in retrieved}
-    for title, original in source_paragraphs(dataset, corpus_dir):
+    for title, original in source_paragraphs(dataset, corpus_dir, index_dir):
         combined = (title + "\n" + original if title else original).replace("\n", " ")
         for match in pattern.finditer(combined):
             for doc in anchors[match.group(1)]:
@@ -406,7 +406,8 @@ async def score_report(path, questions, settings, output_path):
         if dataset not in ("musique", "2wikimultihopqa", "hotpotqa", "military"):
             raise ValueError(f"Embedding recall mapping is unsupported for dataset: {dataset}")
         corpus_dir = Path(__file__).resolve().parents[1] / "data" / "corpus" / dataset
-        chunk_paragraphs = map_chunks(rows, corpus_dir, dataset)
+        index_dir = Path(__file__).resolve().parents[1] / "data" / "index" / dataset
+        chunk_paragraphs = map_chunks(rows, corpus_dir, dataset, index_dir)
     if not settings.get("model") or not settings.get("base_url"):
         raise ValueError("Configure evaluation.model and evaluation.base_url")
     workers = int(settings.get("max_workers", 2))

@@ -50,7 +50,7 @@ for name in ('generation', 'embedding', 'evaluation'):
     if not settings.get(name, {}).get('base_url') or not settings[name].get('model'):
         raise ValueError(f'Configure {name}.base_url and {name}.model first')
 for name in ('military.index', 'chunk.json', 'military.index.embedding.json'):
-    if not (Path('../data/corpus/military') / name).is_file():
+    if not (Path('../data/index/military') / name).is_file():
         raise FileNotFoundError(name)
 sys.path.insert(0, 'build_index/es')
 from es_support import create_client

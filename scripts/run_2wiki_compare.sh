@@ -38,7 +38,7 @@ for name in ('generation', 'embedding', 'evaluation'):
     if not settings.get(name, {}).get('base_url') or not settings[name].get('model'):
         raise ValueError(f'Configure {name}.base_url and {name}.model first')
 for name in ('2wikimultihopqa.index', 'chunk.json', '2wikimultihopqa.index.embedding.json'):
-    if not (Path('../data/corpus/2wikimultihopqa') / name).is_file():
+    if not (Path('../data/index/2wikimultihopqa') / name).is_file():
         raise FileNotFoundError(name)
 sys.path.insert(0, 'build_index/es')
 from es_support import create_client

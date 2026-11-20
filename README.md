@@ -68,7 +68,7 @@ Military BM25, from the same `src/build_index/es` directory:
 # One input record per document:
 python index_military.py --input_path ../../../data/military_input.json
 # Or reuse exact vector chunks for matching retrieval units:
-python index_military.py --chunk_file ../../../data/corpus/military/chunk.json
+python index_military.py --chunk_file ../../../data/index/military/chunk.json
 ```
 
 Military defaults to the built-in `cjk` analyzer, requiring no IK plugin. To
@@ -129,7 +129,7 @@ and no deduplication. Ensure each text fits the embedding service input limit;
 oversized requests are not silently truncated by this client. To split long
 records instead, add `--split_military --chunk_size 512 --chunk_overlap 0`.
 
-Outputs go to `data/corpus/military/`: `military.index`, `chunk.json`,
+Outputs go to `data/index/military/`: `military.index`, `chunk.json`,
 `chunk_records.json` (ordered source IDs, record positions and metadata; repeated
 source IDs are preserved), embedding metadata and timing
 statistics. This path generates new embeddings even if the input has an
@@ -177,7 +177,7 @@ a matrix when `--chunk-file` supplies the texts. Vectors are normalized and
 stored in an inner-product index. The model must match `embedding.model` and
 the query embedding service must produce compatible vectors. Existing output
 files are protected unless `--overwrite` is supplied. Output includes the index,
-`chunk.json`, and API embedding metadata under `data/corpus/<dataset>/`.
+`chunk.json`, and API embedding metadata under `data/index/<dataset>/`.
 Recall scoring that maps chunks to source documents still requires the matching
 original corpus for split indices. A portable package imports each record's text
 unchanged and records its ID and metadata in `chunk_records.json`. New reports
