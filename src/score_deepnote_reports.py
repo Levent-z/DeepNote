@@ -196,8 +196,8 @@ async def check_result(base_url, api_key, question, answer, llm_answer, gold_doc
 
 
 async def calc_recal_rate(gold_doc: list, retrieve_docs: list) -> float:
-    gold_doc = [doc.replace("\n", " ") for doc in gold_doc]
-    retrieve_docs = [doc.replace("\n", " ") for doc in retrieve_docs]
+    gold_doc = [" ".join(doc.split()) for doc in gold_doc]
+    retrieve_docs = [" ".join(doc.split()) for doc in retrieve_docs]
     recall_count = 0
     for doc in gold_doc:
         for retrieve_doc in retrieve_docs:
