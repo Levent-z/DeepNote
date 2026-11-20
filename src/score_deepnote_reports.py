@@ -1,14 +1,17 @@
 """Score saved DeepNote reports using the scoring rules from run_test.py.
 
-The three scoring functions below are copied verbatim from run_test.py.
+The judge and summary functions follow run_test.py. Embedding recall maps
+retrieved chunks back to reference documents before scoring.
 This module never calls RetrievalAgent/IterativeRAG or regenerates answers.
 """
 import argparse
 import asyncio
+import bz2
 import copy
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 cache_data = {}
@@ -204,6 +207,76 @@ async def calc_recal_rate(gold_doc: list, retrieve_docs: list) -> float:
     return recall_count / len(gold_doc) if gold_doc else 0.0
 
 
+def source_paragraphs(dataset, corpus_dir):
+    if dataset == "musique":
+        for variant in ("ans", "full"):
+            for split in ("train", "dev", "test"):
+                path = corpus_dir / f"musique_{variant}_v1.0_{split}.jsonl"
+                with path.open(encoding="utf-8-sig") as source:
+                    for line in source:
+                        for paragraph in json.loads(line)["paragraphs"]:
+                            yield paragraph["title"], paragraph["paragraph_text"]
+    elif dataset == "2wikimultihopqa":
+        for split in ("train", "dev", "test"):
+            data = json.loads((corpus_dir / f"{split}.json").read_text(encoding="utf-8-sig"))
+            for item in data:
+                for title, sentences in item["context"]:
+                    yield title, " ".join(sentences)
+    elif dataset == "hotpotqa":
+        paths = sorted(corpus_dir.glob("*/wiki_*.bz2"))
+        if not paths:
+            raise FileNotFoundError(f"No HotpotQA corpus files found in {corpus_dir}")
+        for path in paths:
+            with bz2.open(path, "rt", encoding="utf-8") as source:
+                for line in source:
+                    record = json.loads(line)
+                    yield record["title"], "".join(record["text"])
+    elif dataset == "military":
+        from build_index.emb.military_data import load_military_records
+        stats_path = corpus_dir / "military.index.stats.json"
+        input_path = (Path(__file__).resolve().parents[1] / "data" / "military_input.json")
+        if stats_path.exists():
+            stats = json.loads(stats_path.read_text(encoding="utf-8-sig"))
+            if stats.get("input_path"):
+                input_path = Path(stats["input_path"])
+        for record in load_military_records(input_path):
+            yield "", record["text"]
+    else:
+        raise ValueError(f"Embedding recall mapping is unsupported for dataset: {dataset}")
+
+
+def map_chunks(rows, corpus_dir, dataset):
+    chunk_path = corpus_dir / "chunk.json"
+    chunk_data = json.loads(chunk_path.read_text(encoding="utf-8-sig"))
+    if not isinstance(chunk_data, list) or any(not isinstance(chunk, str) for chunk in chunk_data):
+        raise ValueError(f"Invalid embedding chunks: {chunk_path}")
+    chunks = set(chunk_data)
+    retrieved = {doc for row in rows if row["status"] != "qa_error" for doc in row["retrieved_results"]}
+    if not retrieved <= chunks:
+        raise ValueError(f"Retrieved embedding text is missing from {chunk_path}; check that the report and index match")
+    normalized = {doc: doc.replace("\n", " ").strip() for doc in retrieved}
+    if any(not text for text in normalized.values()):
+        raise ValueError("Retrieved embedding chunks must not be empty")
+    anchors = {}
+    anchor_length = min(32, min((len(text) for text in normalized.values()), default=32))
+    for doc, text in normalized.items():
+        anchors.setdefault(text[:anchor_length], []).append(doc)
+    if not anchors:
+        return {}
+    pattern = re.compile("(?=(" + "|".join(re.escape(anchor) for anchor in anchors) + "))")
+    mapped = {doc: set() for doc in retrieved}
+    for title, original in source_paragraphs(dataset, corpus_dir):
+        combined = (title + "\n" + original if title else original).replace("\n", " ")
+        for match in pattern.finditer(combined):
+            for doc in anchors[match.group(1)]:
+                if normalized[doc] in combined:
+                    mapped[doc].add(original)
+    missing = [doc for doc, originals in mapped.items() if not originals]
+    if missing:
+        raise ValueError(f"Could not map {len(missing)} retrieved chunks to {dataset} paragraphs; check the corpus and index")
+    return mapped
+
+
 def summarize_results(results):
     """Keep every selected question in the primary accuracy denominator."""
     total = len(results)
@@ -326,6 +399,14 @@ def prepare_report(path, questions):
 
 async def score_report(path, questions, settings, output_path):
     report, rows = prepare_report(path, questions)
+    chunk_paragraphs = None
+    if (report.get("run", {}).get("retrieve_method") == "emb"
+            and report["run"].get("retrieval_unit") != "record"):
+        dataset = report["run"].get("dataset")
+        if dataset not in ("musique", "2wikimultihopqa", "hotpotqa", "military"):
+            raise ValueError(f"Embedding recall mapping is unsupported for dataset: {dataset}")
+        corpus_dir = Path(__file__).resolve().parents[1] / "data" / "corpus" / dataset
+        chunk_paragraphs = map_chunks(rows, corpus_dir, dataset)
     if not settings.get("model") or not settings.get("base_url"):
         raise ValueError("Configure evaluation.model and evaluation.base_url")
     workers = int(settings.get("max_workers", 2))
@@ -339,7 +420,11 @@ async def score_report(path, questions, settings, output_path):
     async def score(row):
         if row["status"] == "qa_error":
             return row
-        row["retrieved_rate"] = await calc_recal_rate(row["gold_docs"], row["retrieved_results"])
+        retrieved = row["retrieved_results"]
+        if chunk_paragraphs is not None:
+            retrieved = [paragraph for chunk in retrieved for paragraph in chunk_paragraphs[chunk]]
+            row["retrieved_paragraphs"] = retrieved
+        row["retrieved_rate"] = await calc_recal_rate(row["gold_docs"], retrieved)
         async with semaphore:
             try:
                 right, reason, answerable, answerable_reason = await check_result(

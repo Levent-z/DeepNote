@@ -461,6 +461,11 @@ if __name__ == "__main__":
                 "question_count": len(qa_data), "max_step": args.max_step,
                 "max_fail_step": args.max_fail_step, "max_top_k": args.max_top_k,
                 "retrieve_top_k": args.retrieve_top_k, "MaxClients": args.MaxClients}
+    if retrieve_method == "emb":
+        stats_path = Path(vector_path + ".stats.json")
+        if stats_path.exists():
+            stats = json.loads(stats_path.read_text(encoding="utf-8"))
+            run_info["retrieval_unit"] = stats.get("chunk_strategy", "unknown")
     last_id = len(resume_data)
     logger.info("Already completed: %d; remaining: %d", last_id, len(qa_data) - last_id)
     batch_size = args.MaxClients

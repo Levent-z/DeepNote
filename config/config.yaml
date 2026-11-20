@@ -14,8 +14,8 @@ generation:
   api_key: "EMPTY" # Or set DEEPNOTE_GENERATION_API_KEY in your shell.
   temperature: 0.6
   # Omit top_p, token limits, penalties, seed, stop and stream: use server defaults.
-  enable_thinking: null # true/false sends vLLM chat_template_kwargs; null uses server default.
-  timeout: 120
+  enable_thinking: false # true/false sends vLLM chat_template_kwargs; null uses server default.
+  timeout: 150
   max_attempts: 3 # Includes the initial request.
   retry_delay: 2
   strip_thinking: true
@@ -31,8 +31,8 @@ embedding:
 
 evaluation:
   # Use the SAME judge service/model as the comparison framework.
-  base_url: "http://127.0.0.1:18080/v1"
-  model: "/data/shared/liyuyao/qaagent/jybigdata/models/G9v3-39A5B"
+  base_url: "https://api.minimax.cn/v1"
+  model: "MiniMax-M3"
   api_key: "EMPTY" # Replace locally if authentication is required.
   max_workers: 2
 

@@ -133,7 +133,7 @@ Outputs go to `data/corpus/military/`: `military.index`, `chunk.json`,
 `chunk_records.json` (ordered source IDs, record positions and metadata; repeated
 source IDs are preserved), embedding metadata and timing
 statistics. This path generates new embeddings even if the input has an
-`embedding` field; importing precomputed vectors is not implemented here.
+`embedding` field.
 API mode with one record per chunk avoids importing LlamaIndex and
 SentenceTransformers. This addition builds the military vector index only;
 the main evaluation CLI supports this index via `--dataset military
@@ -143,6 +143,48 @@ the main evaluation CLI supports this index via `--dataset military
 `http://127.0.0.1:8200/v1`, with served model name `Qwen3-Embedding-8B`.
 Change this address if DeepNote runs on a different host/container. No
 Elasticsearch service is required when running with `--retrieve_method emb`.
+
+### Import precomputed vectors
+
+To export a portable package from a live OpenSearch index first:
+
+```bash
+python scripts/export_opensearch_vectors.py --url http://127.0.0.1:9201 \
+  --index military_paragraphs_vector --dataset-id military_pages \
+  --model Qwen3-Embedding-8B --output data/military-pages-export
+```
+
+The output directory must not already exist. The script reads `_source` using
+scroll, verifies vector dimensions and document count, and saves `records.jsonl`,
+mapping, manifests, README and checksums. It preserves other `_source` fields in
+`metadata`; it does not export files referenced by those fields. It exports a live
+index, not snapshot provenance. Use `--text-field` and `--vector-field` for
+different top-level field names. For authenticated servers, set the environment
+variable `OPENSEARCH_AUTHORIZATION` to the complete Authorization header value.
+
+Build an API-mode FAISS index without calling the embedding service:
+
+```bash
+python src/build_index/emb/import_vectors.py --dataset military --model Qwen3-Embedding-8B --vectors data/military-pages-export
+# A portable package directory preserves record IDs and metadata.
+python src/build_index/emb/import_vectors.py --dataset military --model Qwen3-Embedding-8B --vectors /path/to/records.jsonl
+# Or use a NumPy matrix and a JSON array of texts in the same row order:
+python src/build_index/emb/import_vectors.py --dataset musique --model Qwen3-Embedding-8B --vectors /path/to/vectors.npy --chunk-file /path/to/chunk.json
+```
+
+JSON/JSONL records contain `text` and `embedding` fields; JSON may instead be
+a matrix when `--chunk-file` supplies the texts. Vectors are normalized and
+stored in an inner-product index. The model must match `embedding.model` and
+the query embedding service must produce compatible vectors. Existing output
+files are protected unless `--overwrite` is supplied. Output includes the index,
+`chunk.json`, and API embedding metadata under `data/corpus/<dataset>/`.
+Recall scoring that maps chunks to source documents still requires the matching
+original corpus for split indices. A portable package imports each record's text
+unchanged and records its ID and metadata in `chunk_records.json`. New reports
+record that retrieval unit and score its text directly. This assumes each source
+record is itself the desired evaluation unit; the importer cannot undo splitting
+already performed before the OpenSearch export. The existing `chunk.json` name
+is retained for retrieval compatibility.
 The generation model configuration remains separate and unchanged.
 
 Build an index from the original corpus (run from the project root):
