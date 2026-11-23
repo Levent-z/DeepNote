@@ -57,77 +57,6 @@ async def check_result(base_url, api_key, question, answer, llm_answer, gold_doc
     }
     """
 
-    answerable_template = """
-    {
-    "reason": "",
-    "answerable": true
-    }
-    或者
-    {
-    "reason": "",
-    "answerable": false
-    }
-    """
-
-    # 判断问题能否被回答
-    async def check_answerable():
-        # 生成answerable的缓存key
-        answerable_prompt = f"""
-        我将给你一个问题(question)，这个问题的标准答案(answer) ，以及这个问题的参考文档(gold_docs)。
-        请回答
-        这个问题能不能在仅参考 gold_docs 的情况下被回答，并且得到答案answer？（gold_docs中是否包含足够明确的信息回答这个问题并得到answer）
-        question = {question}
-        answer = {answer}
-        gold_docs = {gold_docs}
-
-        请用json输出答案，格式为 {answerable_template}
-        请在reason中给出你的判断的理由。理由请用中文给出。
-        """
-
-        cache_key = hashlib.md5(f"answerable|{answerable_prompt}|{model}|{base_url}".encode('utf-8')).hexdigest()
-
-        # 尝试从缓存读取
-        global cache_data
-        if cache_key in cache_data:
-            cached_result = cache_data[cache_key]
-            print(f"mengyao_debug check_answerable hit cache")
-            return cached_result["answerable"], cached_result["reason"]
-
-        print(f"mengyao_debug check_answerable NOT hit cache, answerable_prompt=\n{answerable_prompt}")
-
-        # 缓存中没有，调用大模型
-        def sync_chat_answerable():
-            messages = [{"role": "user", "content": answerable_prompt}]
-            response = llm.chat(messages, temperature=0)
-            return response
-
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, sync_chat_answerable)
-
-        content = response.content
-        if "</think>" in content:
-            content = content.split("</think>")[1].strip()
-
-        try:
-            response_json = json.loads(content.replace("```json", "").replace("```", "").strip())
-            answerable = response_json["answerable"]
-            if not isinstance(answerable, bool):
-                raise ValueError("answerable must be a boolean")
-            reason = response_json.get("reason", "")
-
-            # 将结果存入缓存
-            cache_data[cache_key] = {
-                "answerable": answerable,
-                "reason": reason,
-                "question": question,
-                "answer": answer,
-                "gold_docs": gold_docs,
-            }
-
-            return answerable, reason
-        except Exception as E:
-            raise ValueError("评判模型返回的 answerable 不是有效 JSON") from E
-
     # 判断答案是否正确
     async def check_correctness():
         # 先检查是否可以直接匹配
@@ -189,8 +118,7 @@ async def check_result(base_url, api_key, question, answer, llm_answer, gold_doc
         except Exception as E:
             raise ValueError("评判模型返回的 correctness 不是有效 JSON") from E
 
-    # 分别检查参考证据的可回答性和最终答案正确性。
-    answerable, answerable_reason = await check_answerable()
+    answerable, answerable_reason = True, "数据集已筛选为可回答，不再调用模型判断"
     result, result_reason = await check_correctness()
 
     return result, result_reason, answerable, answerable_reason
@@ -283,8 +211,8 @@ def summarize_results(results):
     total = len(results)
     judged = [q for q in results if q.get("status") == "ok"]
     correct = sum(q.get("llm_judge") is True for q in judged)
-    answerable = [q for q in judged if q.get("llm_judge_answerable") is True]
-    answerable_correct = sum(q.get("llm_judge") is True for q in answerable)
+    answerable = results
+    answerable_correct = correct
     total_tokens = sum(q.get("n_token_retrieval", 0) for q in results)
     return {
         "total": total, "judged": len(judged), "correct": correct,
@@ -450,6 +378,7 @@ async def score_report(path, questions, settings, output_path):
         summary.update(complete=complete, completed=len(completed), token_usage_note="Not recorded by DeepNote")
         return {"source_report": str(Path(path).resolve()), "scoring_protocol": "src/run_test.py",
                 "judge": {"model": settings["model"], "base_url": settings["base_url"], "temperature": 0},
+                "answerability_policy": "all_selected_questions_assumed_answerable",
                 "generation_run": report["run"], "generation_summary": report["summary"],
                 "summary": summary, "results": ordered}
 
@@ -477,7 +406,7 @@ def comparison_payload(summaries):
     return {"metrics": metrics,
             "metric_definitions": {
                 "accuracy": "Correct answers / all selected questions, including errors.",
-                "recall_on_answerable": "Average multiround reference recall for judge-accepted answerable questions; null if none.",
+                "recall_on_answerable": "Average reference recall over all selected questions; missing recall counts as zero.",
             },
             "scoring_protocol": "src/run_test.py", "reports": summaries}
 
