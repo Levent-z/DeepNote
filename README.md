@@ -337,6 +337,23 @@ provided evaluator's distinct rules.
 
 ## Save answers, retrieved materials and timings without scoring
 
+### Summarize existing performance reports
+
+Run `python src/summarize_performance.py report1.json report2.scored.json --output output/performance_summary.json`
+from the repository root. Supply one generation or scored report per run: a scored
+report and its source contain the same questions and would be counted twice. The
+script reads existing results only; it does not call any services. It groups rows
+by dataset and reports question-weighted overall statistics. For QA time, generation
+time and calls, and retrieval time and calls, it records the mean, minimum, maximum,
+and number of available values. Times are in seconds. Failed questions are included;
+missing values are excluded, not treated as zero. Check `count` and `statuses` when
+comparing runs. Incomplete reports are identified in `sources`.
+
+The Jiugong `run_test.py` records per-question `qa_elapsed_s`, but does not record
+generation or retrieval call counts or stage times. Compare QA time only when the
+question set, concurrency, model, retrieval configuration and success handling are
+aligned; missing historical stage metrics cannot be reconstructed from QA time.
+
 ### Jiugе / G9 generation API
 
 For the verified port-18080 endpoint, `generation.model` uses the full served
