@@ -56,6 +56,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("reports", nargs="+", help="Generation or scored JSON reports, one per run")
     parser.add_argument("--output", help="Write summary JSON to this path (default: stdout)")
+    parser.add_argument("--group-by-parent", action="store_true",
+                        help="Group reports by their parent directory instead of their dataset field")
     args = parser.parse_args()
     paths = [Path(name).resolve() for name in args.reports]
     if len(set(paths)) != len(paths):
@@ -66,8 +68,10 @@ def main():
     sources = []
     for path in paths:
         dataset, report = read_report(path)
-        datasets.setdefault(dataset, []).extend(report["results"])
+        group = path.parent.name if args.group_by_parent else dataset
+        datasets.setdefault(group, []).extend(report["results"])
         sources.append({"path": str(path), "dataset": dataset,
+                        "group": group,
                         "questions": len(report["results"]),
                         "complete": report.get("summary", {}).get("complete")})
     all_rows = [row for rows in datasets.values() for row in rows]
